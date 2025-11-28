@@ -1,57 +1,51 @@
+// controllers/paymentsController.js
 import crypto from "crypto";
-import Order from "../models/Order.js"; // assuming you have an Order model
 import Razorpay from "razorpay";
 
-const razorpay = new Razorpay({
-  key_id: "rzp_test_RYSrB6sPc5KhU2",
-  key_secret: "W2UYGJUMppSBRYwyNZRYirHx",
-});
-
-// -------------------- Create Order (Generate Razorpay Order) --------------------
+// POST /api/payments/create-order
 export const createOrder = async (req, res) => {
   try {
-    const { amount, currency = "INR" } = req.body;
+    // Initialize Razorpay inside the function to ensure env vars are loaded
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
 
-    // Razorpay expects amount in paise
+    const { amount, currency = "INR" } = req.body;
+    // 👉 amount frontend se PAISA me aayega (e.g. ₹1000 => 100000)
+
     const options = {
-      amount: amount * 100,
+      amount, // dobara *100 mat karo
       currency,
       receipt: `receipt_${Date.now()}`,
     };
 
     const order = await razorpay.orders.create(options);
 
-    // Generate signature for backend testing
-    const body = order.id + "|" + "TEST_PAYMENT_ID"; // use dummy payment_id for testing
-
-    console.log(order);
-    const signature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body)
-      .digest("hex");
-    console.log("Signature:", signature);
-    res.json({
+    return res.json({
       success: true,
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID,
-      test_signature: signature, // <-- signature you can use in Postman
+      data: {
+        id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        key: process.env.RAZORPAY_KEY_ID,
+      },
     });
-    console.log("Order created successfully");
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Razorpay createOrder error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || "Failed to create order" });
   }
 };
 
-// -------------------- Verify Payment (After Payment Success) --------------------
+// POST /api/payments/verify-payment
 export const verifyPayment = async (req, res) => {
   try {
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      orderData,
     } = req.body;
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
@@ -60,7 +54,7 @@ export const verifyPayment = async (req, res) => {
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body.toString())
       .digest("hex");
-    console.log("object", expectedSignature, razorpay_signature);
+
     const isAuthentic = expectedSignature === razorpay_signature;
 
     if (!isAuthentic) {
@@ -69,26 +63,14 @@ export const verifyPayment = async (req, res) => {
         .json({ success: false, message: "Invalid signature" });
     }
 
-    const { amount = 0, items = [], address = {} } = orderData || {};
-
-    const newOrder = await Order.create({
-      user: req.user._id,
-      paymentId: razorpay_payment_id,
-      razorpayOrderId: razorpay_order_id,
-      amount,
-      items,
-      address,
-      status: "Paid", 
-      paymentMethod: "Razorpay",
-    });
-
-    console.log(newOrder);
-    res.json({
+    return res.json({
       success: true,
       message: "Payment verified successfully",
-      order: newOrder,
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Razorpay verifyPayment error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || "Failed to verify payment" });
   }
 };
