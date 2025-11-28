@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Upload Examples</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 5px;
+        }
+        input, button {
+            margin: 10px 0;
+            padding: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Upload Examples</h1>
+    
+    <!-- Single File Upload -->
+    <div class="form-container">
+        <h2>Single File Upload</h2>
+        <form id="singleUploadForm" enctype="multipart/form-data">
+            <input type="file" name="image" accept="image/*" required>
+            <button type="submit">Upload Single File</button>
+        </form>
+        <div id="singleUploadResult" class="result"></div>
+    </div>
+    
+    <!-- Multiple Files Upload -->
+    <div class="form-container">
+        <h2>Multiple Files Upload</h2>
+        <form id="multipleUploadForm" enctype="multipart/form-data">
+            <input type="file" name="images" accept="image/*" multiple required>
+            <button type="submit">Upload Multiple Files</button>
+        </form>
+        <div id="multipleUploadResult" class="result"></div>
+    </div>
+    
+    <!-- Form Data with Files Upload -->
+    <div class="form-container">
+        <h2>Form Data with Files Upload</h2>
+        <form id="formDataUploadForm" enctype="multipart/form-data">
+            <input type="text" name="title" placeholder="Product Title" required><br>
+            <textarea name="description" placeholder="Product Description" required></textarea><br>
+            <input type="number" name="price" placeholder="Price" required><br>
+            <input type="file" name="images" accept="image/*" multiple required>
+            <button type="submit">Upload with Form Data</button>
+        </form>
+        <div id="formDataUploadResult" class="result"></div>
+    </div>
+
+    <script>
+        // Replace with your actual API base URL
+        const API_BASE_URL = 'http://localhost:5000';
+        // Replace with a valid JWT token
+        const AUTH_TOKEN = 'your-jwt-token-here';
+        
+        // Function to handle form submission
+        async function handleSubmit(formId, endpoint, resultId) {
+            const form = document.getElementById(formId);
+            const resultDiv = document.getElementById(resultId);
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const formData = new FormData(form);
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/uploads${endpoint}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${AUTH_TOKEN}`
+                        },
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } catch (error) {
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                }
+            });
+        }
+        
+        // Initialize form handlers
+        handleSubmit('singleUploadForm', '/single', 'singleUploadResult');
+        handleSubmit('multipleUploadForm', '/multiple', 'multipleUploadResult');
+        handleSubmit('formDataUploadForm', '/form-data', 'formDataUploadResult');
+    </script>
+</body>
+</html>

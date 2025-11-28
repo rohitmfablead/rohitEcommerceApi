@@ -1,0 +1,9 @@
+import express from "express";
+import { getHomepageData } from "../controllers/homepageController.js";
+
+const router = express.Router();
+
+// Public route
+router.get("/", getHomepageData);
+
+export default router;
