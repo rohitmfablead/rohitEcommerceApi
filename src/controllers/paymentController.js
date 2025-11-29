@@ -87,7 +87,7 @@ export const verifyPayment = async (req, res) => {
       razorpaySignature: razorpay_signature,
     };
 
-    order.paymentStatus = "paid"; // enum: ["pending","paid","failed"]
+    order.paymentStatus = "paid"; 
     order.isPaid = true;
     order.paidAt = Date.now();
 
