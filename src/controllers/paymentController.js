@@ -1,21 +1,21 @@
 // controllers/paymentsController.js
 import crypto from "crypto";
 import Razorpay from "razorpay";
+import Order from "../models/Order.js";
+import { createNotification } from "./notificationController.js";
 
 // POST /api/payments/create-order
-export const createOrder = async (req, res) => {
+export const createRazorpayOrder = async (req, res) => {
   try {
-    // Initialize Razorpay inside the function to ensure env vars are loaded
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
 
     const { amount, currency = "INR" } = req.body;
-    // 👉 amount frontend se PAISA me aayega (e.g. ₹1000 => 100000)
 
     const options = {
-      amount, // dobara *100 mat karo
+      amount, // amount already in paisa
       currency,
       receipt: `receipt_${Date.now()}`,
     };
@@ -33,9 +33,10 @@ export const createOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("Razorpay createOrder error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: err.message || "Failed to create order" });
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to create order",
+    });
   }
 };
 
@@ -46,8 +47,10 @@ export const verifyPayment = async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
+      orderId, // 🔴 frontend se bhejna hoga
     } = req.body;
 
+    // 1) Razorpay signature verify
     const body = razorpay_order_id + "|" + razorpay_payment_id;
 
     const expectedSignature = crypto
@@ -63,14 +66,51 @@ export const verifyPayment = async (req, res) => {
         .json({ success: false, message: "Invalid signature" });
     }
 
+    // 2) Order ko find karo
+    if (!orderId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "orderId is required" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
+    }
+
+    // 3) Order me payment details update karo
+    order.paymentResult = {
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature,
+    };
+
+    order.paymentStatus = "paid"; // enum: ["pending","paid","failed"]
+    order.isPaid = true;
+    order.paidAt = Date.now();
+
+    await order.save();
+
+    // 4) User ko notification (optional but nice)
+    await createNotification({
+      user: order.user,
+      title: "Payment Successful",
+      message: `Payment for order #${order._id} was successful`,
+      type: "order",
+    });
+
     return res.json({
       success: true,
-      message: "Payment verified successfully",
+      message: "Payment verified and order marked as paid",
+      order,
     });
   } catch (err) {
     console.error("Razorpay verifyPayment error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: err.message || "Failed to verify payment" });
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to verify payment",
+    });
   }
 };
