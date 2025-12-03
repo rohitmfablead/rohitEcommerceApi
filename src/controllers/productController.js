@@ -4,6 +4,7 @@ import Cart from "../models/Cart.js";
 import Like from "../models/Like.js";
 import Review from "../models/Review.js";
 import Tag from "../models/Tag.js";
+import Category from "../models/Category.js";
 
 const baseUrl = process.env.BASE_URL || "http://localhost:5000";
 
@@ -812,5 +813,85 @@ export const removeTagFromProduct = async (req, res) => {
     res.json({ message: "Tag removed successfully", product });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// -------------------- Autocomplete Search --------------------
+export const autocompleteSearch = async (req, res) => {
+  try {
+    const { q, limit = 10 } = req.query;
+
+    if (!q) {
+      return res.json({
+        success: true,
+        products: [],
+        categories: [],
+        tags: []
+      });
+    }
+
+    // Search for products matching the query
+    const productResults = await Product.find({
+      $or: [
+        { name: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } }
+      ]
+    })
+    .populate("category")
+    .limit(parseInt(limit))
+    .select("name images price category tags avgRating ratingCount");
+
+    // Search for categories matching the query
+    const categoryResults = await Product.distinct("category", {
+      $or: [
+        { name: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } }
+      ]
+    });
+
+    // Get populated category details
+    const categories = await Category.find({
+      _id: { $in: categoryResults }
+    }).limit(5);
+
+    // Search for tags matching the query
+    const tagResults = await Product.distinct("tags", {
+      $or: [
+        { name: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } },
+        { tags: { $in: [new RegExp(q, "i")] } }
+      ]
+    });
+
+    // Limit tags to 10 results
+    const tags = tagResults.slice(0, 10);
+
+    // Format product results for autocomplete
+    const products = productResults.map(product => ({
+      _id: product._id,
+      name: product.name,
+      image: product.images && product.images.length > 0 ? product.images[0] : null,
+      price: product.price,
+      category: product.category ? {
+        _id: product.category._id,
+        name: product.category.name
+      } : null,
+      tags: product.tags,
+      avgRating: product.avgRating || 0,
+      ratingCount: product.ratingCount || 0
+    }));
+
+    res.json({
+      success: true,
+      products,
+      categories,
+      tags
+    });
+  } catch (err) {
+    console.error("Error in autocomplete search:", err);
+    res.status(500).json({ 
+      success: false,
+      message: err.message 
+    });
   }
 };

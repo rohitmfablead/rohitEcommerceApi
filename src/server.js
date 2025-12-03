@@ -25,7 +25,7 @@ import bannerRoutes from "./routes/bannerRoutes.js";
 import cmsRoutes from "./routes/cmsRoutes.js";
 import homepageRoutes from "./routes/homepageRoutes.js";
 import tagRoutes from "./routes/tagRoutes.js";
-import newHomepageRoutes from "./routes/newHomepageRoutes.js";
+import searchRoutes from "./routes/searchRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -45,7 +45,7 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/products", productRoutes  );
+app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
@@ -61,8 +61,9 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/cms", cmsRoutes);
 app.use("/api/homepage", homepageRoutes);
-app.use("/api/new-homepage", newHomepageRoutes);
+// app.use("/api/new-homepage", newHomepageRoutes);
 app.use("/api/tags", tagRoutes);
+app.use("/api/search", searchRoutes);
 
 // Error handler
 app.use(errorHandler);
