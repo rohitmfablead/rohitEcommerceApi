@@ -13,14 +13,43 @@ const orderSchema = new mongoose.Schema(
     ],
 
     shippingAddress: {
+      fullName: String,
+      phoneNumber: String,
       address: String,
       city: String,
+      state: String,
       postalCode: String,
       country: String,
     },
 
-    totalPrice: Number,
-    discountedPrice: Number, // Price after applying coupons
+    // Detailed pricing breakdown
+    subtotal: { 
+      type: Number, 
+      required: true 
+    },
+    discount: { 
+      type: Number, 
+      default: 0 
+    }, // Generic discount field for backward compatibility
+    
+    couponDiscount: { 
+      type: Number, 
+      default: 0 
+    },
+    deliveryCharges: { 
+      type: Number, 
+      default: 0 
+    },
+    totalPrice: { 
+      type: Number, 
+      required: true 
+    }, // Final amount to be paid
+    
+    // For backward compatibility
+    discountedPrice: { 
+      type: Number, 
+      default: 0 
+    },
 
     coupon: {
       code: String,

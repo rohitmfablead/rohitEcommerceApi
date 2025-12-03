@@ -24,6 +24,8 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import bannerRoutes from "./routes/bannerRoutes.js";
 import cmsRoutes from "./routes/cmsRoutes.js";
 import homepageRoutes from "./routes/homepageRoutes.js";
+import tagRoutes from "./routes/tagRoutes.js";
+import newHomepageRoutes from "./routes/newHomepageRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -59,6 +61,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/cms", cmsRoutes);
 app.use("/api/homepage", homepageRoutes);
+app.use("/api/new-homepage", newHomepageRoutes);
+app.use("/api/tags", tagRoutes);
 
 // Error handler
 app.use(errorHandler);

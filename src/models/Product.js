@@ -11,8 +11,7 @@ const productSchema = new mongoose.Schema({
   category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
   
   tags: [{
-    type: String,
-    enum: ["top-deals", "latest", "fashion", "winter", "featured", "summer", "sale", "trending"]
+    type: String
   }],
 
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],

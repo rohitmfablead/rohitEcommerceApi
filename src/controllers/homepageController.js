@@ -6,6 +6,7 @@ import Coupon from "../models/Coupon.js";
 import CMS from "../models/CMS.js";
 import Cart from "../models/Cart.js";
 import Like from "../models/Like.js";
+import Tag from "../models/Tag.js";
 import asyncHandler from "express-async-handler";
 
 // -------------------- Helper: Get Liked Products --------------------
@@ -46,41 +47,10 @@ export const getHomepageData = asyncHandler(async (req, res) => {
       },
     ]);
 
-    // 3. Featured products
-    const featuredProducts = await Product.find({ tags: "featured" })
-      .populate("category")
-      .sort({ createdAt: -1 })
-      .limit(10);
+    // 3. Get active homepage tags/labels
+    const homepageLabels = await Tag.find({ isActive: true }).sort({ createdAt: -1 });
 
-    // 4. Best sellers (ratingCount > 0)
-    const bestSellers = await Product.find({
-      ratingCount: { $gt: 0 },
-    })
-      .sort({ ratingCount: -1 })
-      .limit(10);
-
-    // 5. New arrivals (latest)
-    const newArrivals = await Product.find({})
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    // 6. Deal of the day (any discounted product)
-    const dealOfTheDay = await Product.findOne({
-      discount: { $gt: 0 },
-    }).sort({ createdAt: -1 });
-
-    // 7. Coupons
-    const coupons = await Coupon.find({
-      isActive: true,
-      expiryDate: { $gt: new Date() },
-    })
-      .sort({ createdAt: -1 })
-      .limit(5);
-
-    // 8. CMS sections
-    const cmsSections = await CMS.find({ isActive: true });
-
-    // 9. Process products with user-specific data
+    // 4. Process products with user-specific data
     const processProducts = async (products) => {
       let likedProductIds = [];
       let cartProductIds = [];
@@ -149,6 +119,37 @@ export const getHomepageData = asyncHandler(async (req, res) => {
       });
     };
 
+    // 5. Get products by dynamic labels
+    const getProductsByLabel = async (label, limit = 10) => {
+      // For all labels, find products with that tag
+      return await Product.find({ tags: { $in: [label.name || label] } })
+        .populate("category")
+        .sort({ createdAt: -1 })
+        .limit(limit);
+    };
+
+    // 6. Process products for each dynamic label
+    const labeledProducts = {};
+
+    for (const label of homepageLabels) {
+      const labelName = label.name;
+      const products = await getProductsByLabel(label, 8);
+      
+      // Process products for this label
+      labeledProducts[labelName] = await processProducts(products);
+    }
+
+    // 7. Coupons
+    const coupons = await Coupon.find({
+      isActive: true,
+      expiryDate: { $gt: new Date() },
+    })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    // 8. CMS sections
+    const cmsSections = await CMS.find({ isActive: true });
+
     // Process banners
     const processedBanners = banners.map((banner) => ({
       _id: banner._id,
@@ -197,19 +198,7 @@ export const getHomepageData = asyncHandler(async (req, res) => {
       })
     );
 
-    const processedFeaturedProducts = await processProducts(
-      featuredProducts
-    );
-    const processedBestSellers = await processProducts(bestSellers);
-    const processedNewArrivals = await processProducts(newArrivals);
-
-    const processedDealOfTheDay = dealOfTheDay
-      ? {
-          _id: "deal-of-the-day",
-          title: "Deal of the Day",
-          product: (await processProducts([dealOfTheDay]))[0],
-        }
-      : null;
+    // Process deal of the day separately for the offers section
 
     const processedCoupons = coupons.map((coupon) => ({
       code: coupon.code,
@@ -269,11 +258,8 @@ export const getHomepageData = asyncHandler(async (req, res) => {
       data: {
         banners: processedBanners,
         categories: processedCategories,
-        featuredProducts: processedFeaturedProducts,
-        bestSellers: processedBestSellers,
-        newArrivals: processedNewArrivals,
+        labeledProducts: labeledProducts,
         offers: {
-          dealOfTheDay: processedDealOfTheDay,
           coupons: processedCoupons,
         },
         cmsSections: cmsData,

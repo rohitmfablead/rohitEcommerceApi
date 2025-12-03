@@ -16,6 +16,8 @@ import {
   addTagToProduct,
   removeTagFromProduct,
 } from "../controllers/productController.js";
+// Import upload middleware for handling form-data with file uploads
+import { uploadMultiple } from "../utils/upload.js";
 
 const router = express.Router();
 
@@ -25,9 +27,9 @@ router.get("/home", optionalAuth, getHomepageProducts);
 router.get("/tag/:tag", optionalAuth, getProductsByTag);
 router.get("/:id", optionalAuth, getProductById);
 
-// Admin CRUD
-router.post("/", protect, admin, createProduct);
-router.put("/:id", protect, admin, updateProduct);
+// Admin CRUD - Add upload middleware for form-data with file uploads
+router.post("/", protect, admin, uploadMultiple, createProduct);
+router.put("/:id", protect, admin, uploadMultiple, updateProduct);
 router.delete("/:id", protect, admin, deleteProduct);
 router.patch("/:id/stock", protect, admin, updateProductStock);
 

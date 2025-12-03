@@ -3,6 +3,7 @@ import Product from "../models/Product.js";
 import Cart from "../models/Cart.js";
 import Like from "../models/Like.js";
 import Review from "../models/Review.js";
+import Tag from "../models/Tag.js";
 
 const baseUrl = process.env.BASE_URL || "http://localhost:5000";
 
@@ -46,6 +47,19 @@ const updateProductRatings = async (productId) => {
 // -------------------- Create Product --------------------
 export const createProduct = async (req, res) => {
   try {
+    // Log the request body for debugging
+    console.log("Request body:", req.body);
+    console.log("Request files:", req.files);
+    
+    // Check if req.body exists
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return res.status(400).json({
+        message: "Request body is required. Please send product data in form-data format.",
+        receivedBody: req.body,
+        receivedFiles: req.files
+      });
+    }
+
     const {
       name,
       description,
@@ -61,6 +75,25 @@ export const createProduct = async (req, res) => {
       return res.status(400).json({
         message:
           "All fields (name, description, price, stock, category) are required",
+        missingFields: {
+          name: !name,
+          description: !description,
+          price: !price,
+          stock: !stock,
+          category: !category
+        }
+      });
+    }
+
+    // Validate price and stock are numbers
+    const priceNum = Number(price);
+    const stockNum = Number(stock);
+    
+    if (isNaN(priceNum) || isNaN(stockNum)) {
+      return res.status(400).json({
+        message: "Price and stock must be valid numbers",
+        price: typeof price,
+        stock: typeof stock
       });
     }
 
@@ -79,12 +112,12 @@ export const createProduct = async (req, res) => {
     let product = await Product.create({
       name,
       description,
-      price,
-      stock,
+      price: priceNum,
+      stock: stockNum,
       category,
       images,
-      tags: tags || [],
-      discount,
+      tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
+      discount: Number(discount) || 0,
       status: trimmedStatus,
     });
 
@@ -102,6 +135,7 @@ export const createProduct = async (req, res) => {
       cartItem: null,
     });
   } catch (err) {
+    console.error("Error creating product:", err);
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         message: "File size too large. Maximum file size is 5MB.",
@@ -114,7 +148,10 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    res.status(400).json({ message: err.message });
+    res.status(400).json({ 
+      message: err.message,
+      error: err.toString()
+    });
   }
 };
 
@@ -339,6 +376,15 @@ export const getProductById = async (req, res) => {
 // -------------------- Update Product --------------------
 export const updateProduct = async (req, res) => {
   try {
+    console.log("Update request body:", req.body);
+    console.log("Update request files:", req.files);
+
+    if (!req.body) {
+      return res.status(400).json({
+        message: "Request body is required",
+      });
+    }
+
     const {
       name,
       description,
@@ -348,39 +394,82 @@ export const updateProduct = async (req, res) => {
       discount,
       status,
       tags,
+      images,          // string or array of existing images
+      removeImages     // NEW → images to remove
     } = req.body;
 
-    const product = await Product.findById(req.params.id);
-    if (!product)
-      return res.status(404).json({ message: "Product not found" });
+    let product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
 
+    // -----------------------------
+    // UPDATE TEXT FIELDS
+    // -----------------------------
     if (name) product.name = name;
     if (description) product.description = description;
-    if (price) product.price = price;
-    if (stock !== undefined) product.stock = stock;
+    if (price) product.price = Number(price);
+    if (stock !== undefined) product.stock = Number(stock);
     if (category) product.category = category;
-    if (discount !== undefined) product.discount = discount;
+    if (discount !== undefined) product.discount = Number(discount);
     if (status) product.status = status.trim();
-    if (tags) product.tags = tags;
 
+    // -----------------------------
+    // UPDATE TAGS
+    // -----------------------------
+    if (tags) {
+      product.tags = Array.isArray(tags) ? tags : [tags];
+    }
+
+    // -----------------------------
+    // IMAGE HANDLING
+    // -----------------------------
+
+    // 1. Existing images from req.body.images
+    let finalImages = [];
+
+    if (images) {
+      finalImages = Array.isArray(images) ? images : [images];
+    } else {
+      finalImages = product.images; // keep old if nothing sent
+    }
+
+    // 2. Remove images if requested
+    if (removeImages) {
+      const removeList = Array.isArray(removeImages)
+        ? removeImages
+        : [removeImages];
+
+      finalImages = finalImages.filter((img) => !removeList.includes(img));
+    }
+
+    // 3. Add new uploaded images
     if (req.files && req.files.length > 0) {
-      const newImages = req.files.map((file) => {
+      const uploadedImages = req.files.map((file) => {
         const normalizedPath = file.path
           .replace(/\\/g, "/")
           .replace("uploads/", "");
         return `${baseUrl}/uploads/${normalizedPath}`;
       });
-      product.images = newImages;
+
+      finalImages.push(...uploadedImages);
     }
 
-    const updatedProduct = await product.save();
-    const populatedProduct = await Product.findById(updatedProduct._id).populate(
-      "category"
-    );
+    // Set final images
+    product.images = finalImages;
 
-    res.json(populatedProduct);
+    // -----------------------------
+    // Save and return
+    // -----------------------------
+    let updatedProduct = await product.save();
+    updatedProduct = await Product.findById(updatedProduct._id).populate("category");
+
+    res.json(updatedProduct);
+
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error("Error updating product:", err);
+    res.status(400).json({
+      message: err.message,
+      error: err.toString(),
+    });
   }
 };
 
@@ -486,8 +575,15 @@ export const rateProduct = async (req, res) => {
 export const getProductsByTag = async (req, res) => {
   try {
     const { tag } = req.params;
+    
+    // Check if tag parameter exists
+    if (!tag) {
+      return res.status(400).json({ message: "Tag parameter is required" });
+    }
+
     const { page = 1, limit = 12 } = req.query;
 
+    // Get all distinct tags from products
     const allTags = await Product.distinct("tags");
 
     if (!allTags.includes(tag)) {
@@ -560,6 +656,7 @@ export const getProductsByTag = async (req, res) => {
       },
     });
   } catch (err) {
+    console.error("Error fetching products by tag:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -569,8 +666,13 @@ export const getHomepageProducts = async (req, res) => {
   try {
     const userId = req.user ? req.user._id.toString() : null;
 
+    // Get all distinct tags from products
     const allTags = await Product.distinct("tags");
-    const homepageTags = ["trending", "top-deals", "featured", "sale"];
+    
+    // Define homepage tags - these are the tags we want to display on homepage
+    const homepageTags = ["trending", "top-deals", "featured", "sale", "dealoftheday", "bestsellers"];
+    
+    // Filter to only include tags that actually exist in our products
     const validHomepageTags = homepageTags.filter((tag) =>
       allTags.includes(tag)
     );
@@ -592,6 +694,7 @@ export const getHomepageProducts = async (req, res) => {
 
     const tagProducts = {};
 
+    // For each valid tag, get products with that tag
     for (const tag of validHomepageTags) {
       const products = await Product.find({ tags: tag })
         .populate("category")
@@ -628,6 +731,7 @@ export const getHomepageProducts = async (req, res) => {
 
     res.json(tagProducts);
   } catch (err) {
+    console.error("Error fetching homepage products:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -635,6 +739,13 @@ export const getHomepageProducts = async (req, res) => {
 // -------------------- Add Tag to Product --------------------
 export const addTagToProduct = async (req, res) => {
   try {
+    // Check if req.body exists
+    if (!req.body) {
+      return res.status(400).json({
+        message: "Tag is required",
+      });
+    }
+
     const { tag } = req.body;
     const product = await Product.findById(req.params.id);
 
@@ -642,8 +753,21 @@ export const addTagToProduct = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    if (!product.tags.includes(tag)) {
-      product.tags.push(tag);
+    // Check if tag exists in our Tag collection
+    const existingTag = await Tag.findOne({ 
+      $or: [
+        { name: { $regex: new RegExp(`^${tag}$`, 'i') } },
+        { slug: tag }
+      ]
+    });
+
+    // For now, we'll allow adding tags even if they don't exist in the Tag collection
+    // In production, you might want to enforce this validation
+    const tagName = existingTag ? existingTag.name : tag;
+
+    // Add tag to product if not already present
+    if (!product.tags.includes(tagName)) {
+      product.tags.push(tagName);
       await product.save();
     }
 
@@ -656,6 +780,13 @@ export const addTagToProduct = async (req, res) => {
 // -------------------- Remove Tag from Product --------------------
 export const removeTagFromProduct = async (req, res) => {
   try {
+    // Check if req.body exists
+    if (!req.body) {
+      return res.status(400).json({
+        message: "Tag is required",
+      });
+    }
+
     const { tag } = req.body;
     const product = await Product.findById(req.params.id);
 
@@ -663,7 +794,19 @@ export const removeTagFromProduct = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    product.tags = product.tags.filter((t) => t !== tag);
+    // Check if tag exists in our Tag collection
+    const existingTag = await Tag.findOne({ 
+      $or: [
+        { name: { $regex: new RegExp(`^${tag}$`, 'i') } },
+        { slug: tag }
+      ]
+    });
+
+    // For now, we'll allow removing tags even if they don't exist in the Tag collection
+    // In production, you might want to enforce this validation
+    const tagName = existingTag ? existingTag.name : tag;
+
+    product.tags = product.tags.filter((t) => t !== tagName);
     await product.save();
 
     res.json({ message: "Tag removed successfully", product });

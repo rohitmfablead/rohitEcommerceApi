@@ -2,12 +2,13 @@ import Order from "../models/Order.js";
 import Cart from "../models/Cart.js";
 import Product from "../models/Product.js";
 import Address from "../models/Address.js";
+import Coupon from "../models/Coupon.js";
 import { createNotification } from "./notificationController.js";
 
 // -------------------- Create Order --------------------
 export const createOrder = async (req, res) => {
   try {
-    const { addressId, paymentMethod, couponCode } = req.body;
+    const { addressId, shippingAddress, paymentMethod, couponCode, discount = 0, deliveryCharges = 0 } = req.body;
 
     // Get user's cart
     const cart = await Cart.findOne({ user: req.user._id }).populate(
@@ -17,47 +18,126 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({ message: "Cart is empty" });
     }
 
-    // Get shipping address
-    const address = await Address.findById(addressId);
-    if (!address) {
-      return res.status(400).json({ message: "Invalid shipping address" });
+    // Get shipping address - either from DB lookup or directly from request
+    let address;
+    if (addressId) {
+      // Get address from database
+      address = await Address.findById(addressId);
+      if (!address) {
+        return res.status(400).json({ message: "Invalid shipping address" });
+      }
+    } else if (shippingAddress) {
+      // Use address directly from request
+      address = shippingAddress;
+    } else {
+      return res.status(400).json({ message: "Shipping address is required" });
     }
 
-    // Calculate total price
-    let totalPrice = cart.items.reduce(
-      (acc, item) => acc + item.product.price * item.quantity,
+    // Calculate subtotal using product final prices (accounting for product-level discounts)
+    let subtotal = cart.items.reduce(
+      (acc, item) => {
+        // Use finalPrice if available (product-level discount), otherwise use base price
+        const itemPrice = item.product.finalPrice || item.product.price;
+        return acc + itemPrice * item.quantity;
+      },
       0
     );
 
     // Apply coupon if provided
-    let discount = 0;
+    let couponDiscount = 0;
+    let couponData = null;
     if (couponCode) {
-      // TODO: real coupon validation
-      discount = totalPrice * 0.1; // 10% dummy
+      // Find and validate coupon
+      const coupon = await Coupon.findOne({ 
+        code: couponCode.toUpperCase(),
+        isActive: true,
+        expiryDate: { $gt: Date.now() }
+      });
+
+      if (coupon) {
+        // Check if coupon usage limit exceeded
+        if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+          return res.status(400).json({ message: "Coupon usage limit exceeded" });
+        }
+
+        // Check minimum order amount
+        if (subtotal < coupon.minOrderAmount) {
+          return res.status(400).json({ 
+            message: `Minimum order amount is ₹${coupon.minOrderAmount}` 
+          });
+        }
+
+        // Calculate coupon discount
+        if (coupon.discountType === "percentage") {
+          couponDiscount = (subtotal * coupon.discountValue) / 100;
+          // Apply max discount limit if set
+          if (coupon.maxDiscountAmount && couponDiscount > coupon.maxDiscountAmount) {
+            couponDiscount = coupon.maxDiscountAmount;
+          }
+        } else {
+          couponDiscount = coupon.discountValue;
+          // Ensure discount doesn't exceed subtotal
+          if (couponDiscount > subtotal) {
+            couponDiscount = subtotal;
+          }
+        }
+        
+        couponData = {
+          code: coupon.code,
+          discount: couponDiscount
+        };
+        
+        // Update coupon usage count
+        coupon.usedCount += 1;
+        await coupon.save();
+      } else {
+        return res.status(400).json({ message: "Invalid or expired coupon" });
+      }
     }
 
-    const discountedPrice = totalPrice - discount;
+    // Calculate total amount
+    // Apply either generic discount OR coupon discount (not both), and delivery charges
+    // If coupon is applied, ignore the generic discount field
+    const effectiveDiscount = couponCode ? couponDiscount : discount;
+    const discountedSubtotal = subtotal - effectiveDiscount;
+    const totalAmount = discountedSubtotal + deliveryCharges;
 
-    // Create order items with price at time of order
+    // Round totalAmount to 2 decimal places to avoid floating point issues
+    const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
+
+    // Create order items with price at time of order (using finalPrice if available)
     const orderItems = cart.items.map((item) => ({
       product: item.product._id,
       quantity: item.quantity,
-      price: item.product.price,
+      // Use finalPrice if available (product-level discount), otherwise use base price
+      price: item.product.finalPrice || item.product.price,
     }));
 
     // Create order
     const order = await Order.create({
       user: req.user._id,
       items: orderItems,
-      shippingAddress: {
-        address: address.address,
+      shippingAddress: addressId ? {
+        // If address came from DB, map the fields
+        fullName: address.fullName,
+        phoneNumber: address.phoneNumber,
+        address: address.street,
         city: address.city,
+        state: address.state,
         postalCode: address.postalCode,
         country: address.country,
+      } : {
+        // If address came directly from request, use it as-is
+        ...address
       },
-      totalPrice,
-      discountedPrice,
-      coupon: couponCode ? { code: couponCode, discount } : undefined,
+      // Store detailed pricing information
+      subtotal: subtotal,
+      discount: couponCode ? 0 : discount, // Generic discount (0 if coupon is applied)
+      couponDiscount: couponDiscount,
+      deliveryCharges: deliveryCharges,
+      totalPrice: roundedTotalAmount,
+      discountedPrice: roundedTotalAmount, // For backward compatibility
+      coupon: couponData,
       paymentMethod: paymentMethod || "COD",
       // default: status = "pending", isPaid = false, paymentStatus = "pending"
     });
@@ -105,7 +185,7 @@ export const getOrders = async (req, res) => {
     if (req.user.role === "admin") {
       orders = await Order.find()
         .populate("user", "name email")
-        .populate("items.product", "name price images")
+        .populate("items.product", "name price finalPrice images")
         .sort({ createdAt: -1 });
 
       return res.status(200).json({
@@ -118,7 +198,7 @@ export const getOrders = async (req, res) => {
 
     // User: get own orders
     orders = await Order.find({ user: req.user._id })
-      .populate("items.product", "name price images")
+      .populate("items.product", "name price finalPrice images")
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -147,7 +227,7 @@ export const getOrderById = async (req, res) => {
 
     const order = await Order.findOne(query).populate(
       "items.product",
-      "name price images"
+      "name price finalPrice images"
     );
 
     if (!order) {

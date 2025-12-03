@@ -180,7 +180,7 @@ export const setDefaultAddress = asyncHandler(async (req, res) => {
 // @route   GET /api/users/orders
 // @access  Private
 export const getOrderHistory = asyncHandler(async (req, res) => {
-  const orders = await Order.find({ user: req.user._id }).populate("items.product");
+  const orders = await Order.find({ user: req.user._id }).populate("items.product", "name price finalPrice images");
   res.json(orders);
 });
 

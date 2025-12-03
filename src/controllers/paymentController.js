@@ -15,7 +15,7 @@ export const createRazorpayOrder = async (req, res) => {
     const { amount, currency = "INR" } = req.body;
 
     const options = {
-      amount, // amount already in paisa
+      amount, 
       currency,
       receipt: `receipt_${Date.now()}`,
     };
