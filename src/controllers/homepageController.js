@@ -124,6 +124,7 @@ export const getHomepageData = asyncHandler(async (req, res) => {
       // For all labels, find products with that tag
       return await Product.find({ tags: { $in: [label.name || label] } })
         .populate("category")
+        .select("name price images finalPrice discount avgRating ratingCount tags stock")
         .sort({ createdAt: -1 })
         .limit(limit);
     };
@@ -171,7 +172,7 @@ export const getHomepageData = asyncHandler(async (req, res) => {
           category: category._id,
         })
           .limit(4)
-          .select("name price images finalPrice discount");
+          .select("name price images finalPrice discount avgRating ratingCount");
 
         return {
           _id: category._id,
@@ -193,6 +194,9 @@ export const getHomepageData = asyncHandler(async (req, res) => {
               product.images && product.images.length > 0
                 ? product.images[0]
                 : null,
+            // Add rating information
+            rating: product.avgRating || 0,
+            numReviews: product.ratingCount || 0,
           })),
         };
       })

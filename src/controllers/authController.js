@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+
 const baseUrl = process.env.BASE_URL || "http://localhost:5000"; // Add base URL
 
 const generateToken = (id) =>
@@ -29,6 +32,29 @@ export const register = async (req, res) => {
     const user = await User.create({ name, email, password, role });
     const token = generateToken(user._id);
 
+    // Notify admins about new user registration
+    const admins = await User.find({ role: "admin" });
+    
+    for (const admin of admins) {
+      await createNotification({
+        user: admin._id,
+        title: "New User Registration",
+        message: `A new user ${name} has registered with email ${email}`,
+        type: "user",
+      });
+      
+      // Send email notification to admin
+      try {
+        await sendEmail(
+          admin.email,
+          `New User Registration: ${name}`,
+          emailTemplates.newUserRegistration(user)
+        );
+      } catch (emailError) {
+        console.error("Failed to send new user registration email to admin:", emailError);
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: "Registration successful",
@@ -51,7 +77,6 @@ export const register = async (req, res) => {
     });
   }
 };
-
 
 
 // ===================== LOGIN =====================

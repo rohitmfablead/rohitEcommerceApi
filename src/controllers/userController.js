@@ -1,6 +1,9 @@
 import User from "../models/User.js";
 import Address from "../models/Address.js";
 import Order from "../models/Order.js";
+import Cart from "../models/Cart.js";
+import Like from "../models/Like.js";
+import Review from "../models/Review.js";
 import asyncHandler from "express-async-handler";
 import { uploadFormData } from "../utils/upload.js"; // Import form data upload utility
 const baseUrl = process.env.BASE_URL || "http://localhost:5000"; // Add base URL
@@ -188,8 +191,48 @@ export const getOrderHistory = asyncHandler(async (req, res) => {
 // @route   GET /api/users
 // @access  Private/Admin
 export const getAllUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({ role: "user" }).select("-password");
-  res.json(users);
+  try {
+    // Get all users with order count and total spent
+    const users = await User.aggregate([
+      {
+        $match: { role: "user" }
+      },
+      {
+        $lookup: {
+          from: "orders",
+          localField: "_id",
+          foreignField: "user",
+          as: "orders"
+        }
+      },
+      {
+        $addFields: {
+          orderCount: { $size: "$orders" },
+          totalSpent: {
+            $reduce: {
+              input: "$orders",
+              initialValue: 0,
+              in: { $add: ["$$value", "$$this.totalPrice"] }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          password: 0,
+          orders: 0
+        }
+      }
+    ]);
+
+    res.json(users);
+  } catch (error) {
+    console.error("Get all users error:", error);
+    res.status(500).json({
+      message: "Failed to fetch users",
+      error: error.message
+    });
+  }
 });
 
 // @desc    Get user by ID (Admin only)
@@ -259,5 +302,115 @@ export const deleteUser = asyncHandler(async (req, res) => {
   } else {
     res.status(404);
     throw new Error("User not found");
+  }
+});
+
+// @desc    Get user dashboard data
+// @route   GET /api/users/dashboard
+// @access  Private
+export const getUserDashboard = asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Get user profile
+    const user = await User.findById(userId).select("-password");
+
+    // Get user addresses
+    const addresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+
+    // Get user orders with limited fields for dashboard
+    const orders = await Order.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .limit(5) // Last 5 orders
+      .populate("items.product", "name price images");
+
+    // Get cart items count
+    const cart = await Cart.findOne({ user: userId });
+    const cartItemsCount = cart ? cart.items.reduce((total, item) => total + item.quantity, 0) : 0;
+
+    // Get wishlist items count
+    const wishlistCount = await Like.countDocuments({ user: userId });
+
+    // Get user reviews
+    const reviews = await Review.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .limit(5) // Last 5 reviews
+      .populate("product", "name");
+
+    // Calculate dashboard statistics
+    const totalOrders = await Order.countDocuments({ user: userId });
+    const totalSpent = await Order.aggregate([
+      { $match: { user: userId, status: "delivered" } },
+      { $group: { _id: null, total: { $sum: "$totalPrice" } } }
+    ]);
+
+    const totalSaved = await Like.countDocuments({ user: userId });
+
+    // Get order status counts
+    const orderStatusCounts = await Order.aggregate([
+      { $match: { user: userId } },
+      { $group: { _id: "$status", count: { $sum: 1 } } }
+    ]);
+
+    // Format order status counts
+    const statusCounts = {
+      pending: 0,
+      processing: 0,
+      shipped: 0,
+      delivered: 0,
+      cancelled: 0
+    };
+
+    orderStatusCounts.forEach(status => {
+      statusCounts[status._id] = status.count;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          mobile: user.mobile,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender,
+          profileImage: user.profileImage,
+          createdAt: user.createdAt
+        },
+        summary: {
+          totalOrders,
+          totalSpent: totalSpent[0]?.total || 0,
+          cartItems: cartItemsCount,
+          wishlistItems: wishlistCount,
+          totalSaved
+        },
+        orderStatus: statusCounts,
+        recentOrders: orders.map(order => ({
+          _id: order._id,
+          orderNumber: `#${order._id.toString().substr(-6)}`,
+          status: order.status,
+          totalPrice: order.totalPrice,
+          createdAt: order.createdAt,
+          itemCount: order.items.length
+        })),
+        addresses: addresses.slice(0, 3), // Limit to 3 addresses
+        recentReviews: reviews.map(review => ({
+          _id: review._id,
+          product: review.product.name,
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.createdAt
+        }))
+      }
+    });
+  } catch (error) {
+    console.error("Dashboard error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard data",
+      error: error.message
+    });
   }
 });

@@ -139,7 +139,9 @@ export const getProductsByCategory = async (req, res) => {
     }
 
     // Fetch products with category populated (if needed)
-    const products = await Product.find({ category: id }).populate("category");
+    const products = await Product.find({ category: id })
+      .populate("category")
+      .select("name price images finalPrice discount avgRating ratingCount tags stock");
 
     // User (if logged in)
     const userId = req.user ? req.user._id.toString() : null;

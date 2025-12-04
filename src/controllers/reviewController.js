@@ -2,11 +2,15 @@ import Review from "../models/Review.js";
 import Product from "../models/Product.js";
 import Order from "../models/Order.js";
 import asyncHandler from "express-async-handler";
+import User from "../models/User.js";
+import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
 
 // @desc    Create a new review
 // @route   POST /api/reviews
 // @access  Private
 export const createReview = asyncHandler(async (req, res) => {
+  console.log("Creating review with data:", req.body);
   const { productId, rating, comment } = req.body;
 
   // Check if product exists
@@ -44,9 +48,36 @@ export const createReview = asyncHandler(async (req, res) => {
     comment,
     isVerifiedPurchase
   });
+  
+  console.log("Created review:", review);
 
   // Update product ratings
+  console.log("Calling updateProductRatings for product:", productId);
   await updateProductRatings(productId);
+  
+  // Notify admins about new review
+  const admins = await User.find({ role: "admin" });
+  const user = await User.findById(req.user._id);
+  
+  for (const admin of admins) {
+    await createNotification({
+      user: admin._id,
+      title: "New Review Received",
+      message: `A new review has been submitted for ${product.name}`,
+      type: "review",
+    });
+    
+    // Send email notification to admin
+    try {
+      await sendEmail(
+        admin.email,
+        `New Review: ${product.name}`,
+        emailTemplates.newReviewReceived(product, review)
+      );
+    } catch (emailError) {
+      console.error("Failed to send new review email to admin:", emailError);
+    }
+  }
 
   res.status(201).json(review);
 });
@@ -150,28 +181,37 @@ export const updateReviewStatus = asyncHandler(async (req, res) => {
 });
 
 // Helper function to update product ratings
-const updateProductRatings = async (productId) => {
+export const updateProductRatings = async (productId) => {
+  console.log("Updating ratings for product:", productId);
   const reviews = await Review.find({ 
     product: productId, 
     isApproved: true 
   });
+  
+  console.log(`Found ${reviews.length} approved reviews for product ${productId}`);
 
   if (reviews.length > 0) {
     const totalRating = reviews.reduce((acc, review) => acc + review.rating, 0);
     const averageRating = totalRating / reviews.length;
+    
+    console.log(`Calculated average rating: ${averageRating} from ${reviews.length} reviews`);
 
-    await Product.findByIdAndUpdate(productId, {
+    const result = await Product.findByIdAndUpdate(productId, {
       $set: {
         avgRating: averageRating,
         ratingCount: reviews.length
       }
     });
+    
+    console.log("Updated product ratings:", result);
   } else {
-    await Product.findByIdAndUpdate(productId, {
+    const result = await Product.findByIdAndUpdate(productId, {
       $set: {
         avgRating: 0,
         ratingCount: 0
       }
     });
+    
+    console.log("Cleared product ratings:", result);
   }
 };

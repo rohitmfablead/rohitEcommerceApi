@@ -9,7 +9,14 @@ const productSchema = new mongoose.Schema({
   images: [String],
 
   category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
-  
+    // Long description (rich / detailed text)
+  longDescription: { type: String, default: "" },
+
+  // Specifications can be an object/map with arbitrary keys (e.g. { color: "red", weight: "1kg" })
+  specifications: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
   tags: [{
     type: String
   }],
@@ -36,6 +43,15 @@ const productSchema = new mongoose.Schema({
 
   finalPrice: {
     type: Number,
+  },
+  // Add rating fields
+  avgRating: {
+    type: Number,
+    default: 0
+  },
+  ratingCount: {
+    type: Number,
+    default: 0
   }
 }, { timestamps: true });
 

@@ -1,5 +1,8 @@
 import Cart from "../models/Cart.js";
 import Product from "../models/Product.js";
+import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+import User from "../models/User.js";
 
 export const getCart = async (req, res) => {
   try {
@@ -51,6 +54,30 @@ export const addToCart = async (req, res) => {
     
     // Populate product details before sending response
     await cart.populate("items.product");
+    
+    // Get user details for notification
+    const user = await User.findById(req.user._id);
+    
+    // Create notification
+    await createNotification({
+      user: req.user._id,
+      title: "Product Added to Cart",
+      message: `You've added ${product.name} (Qty: ${quantity}) to your cart`,
+      type: "cart",
+      sendEmail: true
+    });
+    
+    // Send email notification
+    try {
+      await sendEmail(
+        user.email,
+        `Added to Cart: ${product.name}`,
+        emailTemplates.productAddedToCart(user, product, quantity)
+      );
+    } catch (emailError) {
+      console.error("Failed to send cart addition email:", emailError);
+    }
+    
     res.json(cart);
   } catch (err) {
     res.status(500).json({ message: err.message });

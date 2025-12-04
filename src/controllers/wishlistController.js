@@ -2,6 +2,9 @@
 import Like from "../models/Like.js";
 import Product from "../models/Product.js";
 import asyncHandler from "express-async-handler";
+import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+import User from "../models/User.js";
 
 // @desc    Toggle product in wishlist (add / remove)
 // @route   POST /api/wishlist/:productId/toggle
@@ -24,11 +27,13 @@ export const toggleWishlist = asyncHandler(async (req, res) => {
   });
 
   let isLiked;
+  let message;
 
   if (existingLike) {
     // Already liked -> remove
     await Like.deleteOne({ _id: existingLike._id });
     isLiked = false;
+    message = "Product removed from wishlist";
   } else {
     // Not liked -> add
     await Like.create({
@@ -36,12 +41,39 @@ export const toggleWishlist = asyncHandler(async (req, res) => {
       product: productId
     });
     isLiked = true;
+    message = "Product added to wishlist";
   }
 
   const wishlistCount = await Like.countDocuments({ product: productId });
 
+  // If product was added to wishlist, send notification
+  if (isLiked) {
+    // Get user details
+    const user = await User.findById(userId);
+    
+    // Create notification
+    await createNotification({
+      user: userId,
+      title: "Product Added to Wishlist",
+      message: `You've added ${product.name} to your wishlist`,
+      type: "wishlist",
+      sendEmail: true
+    });
+    
+    // Send email notification
+    try {
+      await sendEmail(
+        user.email,
+        `Added to Wishlist: ${product.name}`,
+        emailTemplates.productAddedToWishlist(user, product)
+      );
+    } catch (emailError) {
+      console.error("Failed to send wishlist addition email:", emailError);
+    }
+  }
+
   res.json({
-    message: isLiked ? "Product added to wishlist" : "Product removed from wishlist",
+    message,
     isLiked,
     wishlistCount
   });
@@ -66,4 +98,3 @@ export const getWishlist = asyncHandler(async (req, res) => {
     data: likes, // <-- Always send array in data
   });
 });
-

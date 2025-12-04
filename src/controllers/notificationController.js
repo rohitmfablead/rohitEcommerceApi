@@ -1,5 +1,7 @@
 import Notification from "../models/Notification.js";
 import asyncHandler from "express-async-handler";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+import User from "../models/User.js";
 
 // @desc    Get user notifications
 // @route   GET /api/notifications
@@ -95,5 +97,23 @@ export const createNotification = async (data) => {
     relatedId: data.relatedId
   });
 
-  return await notification.save();
+  const savedNotification = await notification.save();
+  
+  // Send email notification for critical events
+  if (data.user && data.sendEmail) {
+    try {
+      const user = await User.findById(data.user);
+      if (user && user.email) {
+        await sendEmail(
+          user.email,
+          data.title,
+          emailTemplates.generalNotification(data.title, data.message)
+        );
+      }
+    } catch (emailError) {
+      console.error("Failed to send notification email:", emailError);
+    }
+  }
+
+  return savedNotification;
 };

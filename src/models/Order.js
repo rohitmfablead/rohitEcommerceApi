@@ -67,6 +67,7 @@ const orderSchema = new mongoose.Schema(
         "delivered",
         "cancelled",
         "returned",
+        "return-requested",  // Added for return requests
       ],
       default: "pending",
     },
@@ -101,6 +102,9 @@ const orderSchema = new mongoose.Schema(
       default: false,
     },
     deliveredAt: Date,
+    
+    // Return/Refund reason
+    returnReason: String,
   },
   { timestamps: true }
 );

@@ -2,6 +2,8 @@ import User from "../models/User.js";
 import Product from "../models/Product.js";
 import Order from "../models/Order.js";
 import Category from "../models/Category.js";
+import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
 
 // @desc    Get comprehensive admin dashboard statistics
 // @route   GET /api/admin/dashboard
@@ -23,7 +25,7 @@ export const getDashboardStats = async (req, res) => {
       recentOrders,
       lowStockProducts,
       topSellingProducts,
-      salesData
+      paymentData
     ] = await Promise.all([
       // User statistics
       User.countDocuments({ role: { $ne: "admin" } }),
@@ -49,6 +51,7 @@ export const getDashboardStats = async (req, res) => {
       // Recent orders (last 5)
       Order.find()
         .populate("user", "name email")
+        .populate("items.product", "name price") // Add this to populate product details
         .sort({ createdAt: -1 })
         .limit(5),
       
@@ -80,26 +83,51 @@ export const getDashboardStats = async (req, res) => {
         }
       ]),
       
-      // Sales data for the last 30 days
+      // Payment method distribution
       Order.aggregate([
-        { 
-          $match: { 
-            createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-            status: { $in: ["delivered", "Paid"] }
-          } 
-        },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-            totalSales: { $sum: "$totalPrice" },
-            orderCount: { $sum: 1 }
+            _id: "$paymentMethod",
+            count: { $sum: 1 },
+            totalAmount: { $sum: "$totalPrice" }
           }
         },
-        { $sort: { _id: 1 } }
+        {
+          $sort: { count: -1 }
+        }
       ])
     ]);
 
     const totalRevenue = revenueData[0] ? revenueData[0].totalRevenue : 0;
+    
+    // Send low stock notifications if there are low stock products
+    if (lowStockProducts && lowStockProducts.length > 0) {
+      // Get all admin users
+      const admins = await User.find({ role: "admin" });
+      
+      // Create notification for each admin
+      for (const product of lowStockProducts) {
+        for (const admin of admins) {
+          await createNotification({
+            user: admin._id,
+            title: "Low Stock Warning",
+            message: `Only ${product.stock} items left for ${product.name} (${product._id})`,
+            type: "stock",
+          });
+          
+          // Send email notification to admin
+          try {
+            await sendEmail(
+              admin.email,
+              `Low Stock Alert: ${product.name}`,
+              emailTemplates.productLowStock(product)
+            );
+          } catch (emailError) {
+            console.error("Failed to send low stock email to admin:", emailError);
+          }
+        }
+      }
+    }
 
     res.json({ 
       success: true,
@@ -121,7 +149,7 @@ export const getDashboardStats = async (req, res) => {
         recentOrders,
         lowStockProducts,
         topSellingProducts,
-        salesData
+        paymentData
       }
     });
   } catch (err) {

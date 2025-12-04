@@ -3,6 +3,8 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import Order from "../models/Order.js";
 import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+import User from "../models/User.js";
 
 // POST /api/payments/create-order
 export const createRazorpayOrder = async (req, res) => {
@@ -93,6 +95,9 @@ export const verifyPayment = async (req, res) => {
 
     await order.save();
 
+    // Get user email
+    const user = await User.findById(order.user);
+
     // 4) User ko notification (optional but nice)
     await createNotification({
       user: order.user,
@@ -100,6 +105,17 @@ export const verifyPayment = async (req, res) => {
       message: `Payment for order #${order._id} was successful`,
       type: "order",
     });
+
+    // Send email notification to user
+    try {
+      await sendEmail(
+        user.email,
+        `Payment Confirmation #${order._id}`,
+        emailTemplates.paymentConfirmation(order)
+      );
+    } catch (emailError) {
+      console.error("Failed to send payment confirmation email:", emailError);
+    }
 
     return res.json({
       success: true,

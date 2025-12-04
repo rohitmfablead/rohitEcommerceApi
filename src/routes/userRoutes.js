@@ -12,11 +12,15 @@ import {
   getAllUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  getUserDashboard
 } from "../controllers/userController.js";
 import { uploadFormData } from "../utils/upload.js"; // Import form data upload middleware
 
 const router = express.Router();
+
+// Dashboard route
+router.get("/dashboard", protect, getUserDashboard);
 
 // Profile routes
 router.route("/profile")

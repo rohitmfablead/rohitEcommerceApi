@@ -4,6 +4,8 @@ import Product from "../models/Product.js";
 import Address from "../models/Address.js";
 import Coupon from "../models/Coupon.js";
 import { createNotification } from "./notificationController.js";
+import { sendEmail, emailTemplates } from "../utils/emailService.js";
+import User from "../models/User.js";
 
 // -------------------- Create Order --------------------
 export const createOrder = async (req, res) => {
@@ -153,6 +155,9 @@ export const createOrder = async (req, res) => {
     cart.items = [];
     await cart.save();
 
+    // Get user email
+    const user = await User.findById(req.user._id);
+
     // Create notification for user
     await createNotification({
       user: req.user._id,
@@ -160,6 +165,17 @@ export const createOrder = async (req, res) => {
       message: `Your order #${order._id} has been placed successfully`,
       type: "order",
     });
+
+    // Send email notification to user
+    try {
+      await sendEmail(
+        user.email,
+        `Order Confirmation #${order._id}`,
+        emailTemplates.orderConfirmation(order)
+      );
+    } catch (emailError) {
+      console.error("Failed to send order confirmation email:", emailError);
+    }
 
     // Create notification for admin
     await createNotification({
@@ -270,6 +286,9 @@ export const cancelOrder = async (req, res) => {
       });
     }
 
+    // Get user email
+    const user = await User.findById(req.user._id);
+
     // Notification
     await createNotification({
       user: req.user._id,
@@ -277,6 +296,17 @@ export const cancelOrder = async (req, res) => {
       message: `Your order #${order._id} has been cancelled`,
       type: "order",
     });
+
+    // Send email notification to user
+    try {
+      await sendEmail(
+        user.email,
+        `Order Cancellation #${order._id}`,
+        emailTemplates.orderCancellation(order)
+      );
+    } catch (emailError) {
+      console.error("Failed to send order cancellation email:", emailError);
+    }
 
     return res.json({ message: "Order cancelled successfully" });
   } catch (err) {
@@ -319,12 +349,26 @@ export const updateOrderStatus = async (req, res) => {
 
     await order.save();
 
+    // Get user email
+    const user = await User.findById(order.user);
+
     await createNotification({
       user: order.user,
       title: "Order Status Updated",
       message: `Your order #${order._id} status has been updated from ${previousStatus} to ${status}`,
       type: "order",
     });
+
+    // Send email notification to user
+    try {
+      await sendEmail(
+        user.email,
+        `Order Status Update #${order._id}`,
+        emailTemplates.orderStatusUpdate(order, previousStatus)
+      );
+    } catch (emailError) {
+      console.error("Failed to send order status update email:", emailError);
+    }
 
     return res.json(order);
   } catch (err) {
@@ -359,6 +403,9 @@ export const updatePaymentStatus = async (req, res) => {
 
     await order.save();
 
+    // Get user email
+    const user = await User.findById(order.user);
+
     await createNotification({
       user: order.user,
       title: "Payment Status Updated",
@@ -366,9 +413,90 @@ export const updatePaymentStatus = async (req, res) => {
       type: "order",
     });
 
+    // Send email notification to user when payment is successful
+    if (paymentStatus === "paid") {
+      try {
+        await sendEmail(
+          user.email,
+          `Payment Confirmation #${order._id}`,
+          emailTemplates.paymentConfirmation(order)
+        );
+      } catch (emailError) {
+        console.error("Failed to send payment confirmation email:", emailError);
+      }
+    }
+
     return res.json(order);
   } catch (err) {
     console.error("Update Payment Status Error:", err);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// -------------------- Request Return/Refund --------------------
+export const requestReturn = async (req, res) => {
+  try {
+    const { orderId, reason } = req.body;
+
+    // Find the order
+    const order = await Order.findById(orderId).populate("user");
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Check if user is authorized to request return
+    if (order.user._id.toString() !== req.user._id.toString() && req.user.role !== "admin") {
+      return res.status(401).json({ message: "Not authorized" });
+    }
+
+    // Check if order is eligible for return (must be delivered)
+    if (order.status !== "delivered") {
+      return res.status(400).json({ message: "Order must be delivered to request return" });
+    }
+
+    // Update order status to "return-requested"
+    order.status = "return-requested";
+    order.returnReason = reason;
+    await order.save();
+
+    // Get all admin users
+    const admins = await User.find({ role: "admin" });
+
+    // Create notification for each admin
+    for (const admin of admins) {
+      await createNotification({
+        user: admin._id,
+        title: "Return/Refund Request",
+        message: `A return/refund request has been submitted for order #${order._id}`,
+        type: "order",
+      });
+      
+      // Send email notification to admin
+      try {
+        await sendEmail(
+          admin.email,
+          `Return Request: Order #${order._id}`,
+          emailTemplates.returnRefundRequest(order)
+        );
+      } catch (emailError) {
+        console.error("Failed to send return request email to admin:", emailError);
+      }
+    }
+
+    // Also notify the user
+    await createNotification({
+      user: order.user._id,
+      title: "Return Request Submitted",
+      message: `Your return request for order #${order._id} has been submitted`,
+      type: "order",
+    });
+
+    return res.json({ 
+      message: "Return request submitted successfully",
+      order 
+    });
+  } catch (err) {
+    console.error("Request Return Error:", err);
     return res.status(500).json({ message: err.message });
   }
 };
