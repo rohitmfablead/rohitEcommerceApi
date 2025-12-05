@@ -5,13 +5,17 @@ import Order from "../models/Order.js";
 import { createNotification } from "./notificationController.js";
 import { sendEmail, emailTemplates } from "../utils/emailService.js";
 import User from "../models/User.js";
+import Setting from "../models/Setting.js";
 
 // POST /api/payments/create-order
 export const createRazorpayOrder = async (req, res) => {
   try {
+    // Get settings from database
+    const settings = await Setting.getSettings();
+    
     const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: settings.razorpayKeyId,
+      key_secret: settings.razorpayKeySecret,
     });
 
     const { amount, currency = "INR" } = req.body;
@@ -30,7 +34,7 @@ export const createRazorpayOrder = async (req, res) => {
         id: order.id,
         amount: order.amount,
         currency: order.currency,
-        key: process.env.RAZORPAY_KEY_ID,
+        key: settings.razorpayKeyId,
       },
     });
   } catch (err) {
@@ -52,11 +56,14 @@ export const verifyPayment = async (req, res) => {
       orderId, // 🔴 frontend se bhejna hoga
     } = req.body;
 
+    // Get settings from database
+    const settings = await Setting.getSettings();
+    
     // 1) Razorpay signature verify
     const body = razorpay_order_id + "|" + razorpay_payment_id;
 
     const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .createHmac("sha256", settings.razorpayKeySecret)
       .update(body.toString())
       .digest("hex");
 

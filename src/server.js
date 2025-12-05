@@ -26,6 +26,7 @@ import cmsRoutes from "./routes/cmsRoutes.js";
 import homepageRoutes from "./routes/homepageRoutes.js";
 import tagRoutes from "./routes/tagRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
+import settingRoutes from "./routes/settingRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -64,6 +65,7 @@ app.use("/api/homepage", homepageRoutes);
 // app.use("/api/new-homepage", newHomepageRoutes);
 app.use("/api/tags", tagRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/settings", settingRoutes);
 
 // Error handler
 app.use(errorHandler);

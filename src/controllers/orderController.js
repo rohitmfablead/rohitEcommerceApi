@@ -6,11 +6,12 @@ import Coupon from "../models/Coupon.js";
 import { createNotification } from "./notificationController.js";
 import { sendEmail, emailTemplates } from "../utils/emailService.js";
 import User from "../models/User.js";
+import Setting from "../models/Setting.js";
 
 // -------------------- Create Order --------------------
 export const createOrder = async (req, res) => {
   try {
-    const { addressId, shippingAddress, paymentMethod, couponCode, discount = 0, deliveryCharges = 0 } = req.body;
+    const { addressId, shippingAddress, paymentMethod, couponCode, discount = 0 } = req.body;
 
     // Get user's cart
     const cart = await Cart.findOne({ user: req.user._id }).populate(
@@ -97,6 +98,26 @@ export const createOrder = async (req, res) => {
       }
     }
 
+    // Get settings for shipping calculation and payment validation
+    const settings = await Setting.getSettings();
+    
+    // Validate payment method based on settings
+    const selectedPaymentMethod = paymentMethod || "COD";
+    if (selectedPaymentMethod === "COD" && !settings.codEnabled) {
+      return res.status(400).json({ message: "Cash on Delivery is not available" });
+    }
+
+    // Calculate delivery charges based on settings
+    let deliveryCharges = 0;
+    
+    // Check if order qualifies for free shipping
+    if (subtotal >= settings.freeShippingThreshold) {
+      deliveryCharges = 0; // Free shipping
+    } else {
+      // Apply flat shipping rate
+      deliveryCharges = settings.flatShippingRate;
+    }
+
     // Calculate total amount
     // Apply either generic discount OR coupon discount (not both), and delivery charges
     // If coupon is applied, ignore the generic discount field
@@ -140,7 +161,7 @@ export const createOrder = async (req, res) => {
       totalPrice: roundedTotalAmount,
       discountedPrice: roundedTotalAmount, // For backward compatibility
       coupon: couponData,
-      paymentMethod: paymentMethod || "COD",
+      paymentMethod: selectedPaymentMethod,
       // default: status = "pending", isPaid = false, paymentStatus = "pending"
     });
 
